@@ -81,8 +81,12 @@ class Workflow:
             if not retriever_tool:
                 raise ValueError("Failed to create retriever tool. Check the logs for details.")
             
-            self._tools.setdefault("retriever_tool", []).append(retriever_tool)
-            self._llm_with_tools = self._llm_model.bind_tools(self._tools)
+            # Add retriever tool to the tools dictionary
+            self._tools["retriever_tool"] = [retriever_tool]
+            
+            # Bind all tools (including retriever) to the LLM model
+            self._llm_with_tools = self._llm_model.bind_tools(
+                [tool for tool_list in self._tools.values() for tool in tool_list])
             
             logging.info(f"Workflow initialized successfully with {len(self._doc_loader.documents)} documents.")
 
