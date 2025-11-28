@@ -1,0 +1,86 @@
+[build-system]
+requires = [
+    "setuptools>=69",
+    "wheel",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rocs-copilot"
+version = "1.0.2"
+description = "A chatbot to assist with various queries related to ROCS system"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    { name = "Alireza Asadi", email = "alireza.asadi@fedex.com" },
+]
+maintainers = [
+    { name = "Alireza Asadi", email = "alireza.asadi@fedex.com" },
+]
+dependencies = [
+    "pywin32",
+    "extract-msg",
+    "pandas",
+    "numpy",
+    "pydantic",
+    "sphinx",
+    "langchain",
+    "langchain-community",
+    "pypdf",
+    "openai",
+    "python-dotenv",
+    "beautifulsoup4",
+    "arxiv",
+    "pymupdf",
+    "ipykernel",
+    "jupyter",
+    "wikipedia",
+    "langchain-text-splitters",
+    "langchain-openai",
+    "langchain-google-genai",
+    "chromadb",
+    "faiss-cpu",
+    "langchain-chroma",
+    "langchain-groq",
+    "langchain-core",
+    "fastapi",
+    "uvicorn",
+    "langserve",
+    "langgraph-cli[inmem]",
+    "sse-starlette",
+    "flask-sqlalchemy",
+    "flask-bcrypt",
+    "flask",
+    "flask-cors",
+    "tomli_w",
+    "waitress",
+    "alembic",
+    "anthropic",
+    "langchain-anthropic",
+    "langchain-huggingface",
+    "sentence-transformers",
+    "unstructured",
+    "python-magic",
+    "python-pptx",
+    "python-docx",
+    "bs4",
+    "youtube-transcript-api",
+    "pytube",
+    "yt-dlp",
+    "pydub",
+    "pyodbc",
+]
+
+[project.scripts]
+fenix = "backend.app:app"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.package-dir]
+"" = "backend"
+
+[tool.setuptools.packages.find]
+where = [
+    "backend",
+]

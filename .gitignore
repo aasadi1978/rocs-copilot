@@ -1,0 +1,11 @@
+.venv
+logs
+.git
+*.db
+*.sqlite3
+.env*
+__pycache__
+_archive
+*.egg-info
+docs
+data
