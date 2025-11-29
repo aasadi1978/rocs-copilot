@@ -17,6 +17,7 @@ def transcribe_url(file_path: Union[str, Path]) -> List[Document]:
         # Check if it's a YouTube URL
         if "youtube.com" in file_path.lower() or "youtu.be" in file_path.lower():
             # Add delay to avoid rate limiting (YouTube blocks IPs that make too many requests)
+            input("Press Enter to proceed with YouTube transcription (ensure you are not making too many requests)...")
             delay = random.uniform(2, 5)  # Random delay between 2-5 seconds
             logging.info(f"Waiting {delay:.1f}s before YouTube request (rate limit protection)...")
             time.sleep(delay)
@@ -121,12 +122,39 @@ def transcribe_url(file_path: Union[str, Path]) -> List[Document]:
                 if not content or len(content) < 500:
                     content = soup.get_text(separator='\n', strip=True)
                 
+                # Check for common blockers (privacy gates, cookie walls, paywalls)
+                blocker_indicators = [
+                    'privacy gate',
+                    'cookie consent',
+                    'accept cookies',
+                    'gdpr',
+                    'privacy policy',
+                    'we use cookies',
+                    'this site uses cookies',
+                    'cookie settings',
+                    'paywall',
+                    'subscribe to read',
+                    'sign in to continue',
+                ]
+                
+                content_lower = content.lower()
+                has_blocker = any(indicator in content_lower for indicator in blocker_indicators)
+                
+                if has_blocker and len(content) < 1000:
+                    logging.warning(f"Detected privacy/cookie gate or paywall on {file_path}")
+                    logging.info("Tips to access this content:")
+                    logging.info("  1. This site may require accepting cookies first")
+                    logging.info("  2. Try opening the URL in a browser and copying the content manually")
+                    logging.info("  3. Some sites block automated access - consider using Selenium or Playwright")
+                    logging.info("  4. The site may have a paywall requiring a subscription")
+                    return []
+                
                 # Clean up excessive whitespace
                 lines = [line.strip() for line in content.split('\n') if line.strip()]
                 content = '\n'.join(lines)
                 
                 if len(content) < 100:
-                    logging.warning(f"Very little content extracted from {file_path}")
+                    logging.warning(f"Very little content extracted from {file_path}: {content[:100]}...")
                     return []
                 
                 # Create Document object

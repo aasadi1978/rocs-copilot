@@ -1,43 +1,70 @@
 import logging
-from models.anthropic import dynamic_anthropic_agent as client
-from typing import List, Dict
+from anthropic import Anthropic
+from os import getenv
+from typing import Dict, List, Union
+from langchain_core.messages import AnyMessage
+from dotenv import load_dotenv
+from langchain_core.documents import Document
 
-def count_tokens_anthropic(messages: List[Dict[str, str]], system: str, client=client) -> int:
+load_dotenv()
+
+# Initialize Anthropic client
+anthropic_client = Anthropic(api_key=getenv("ANTHROPIC_API_KEY"))
+
+def count_tokens_anthropic(
+    messages: Union[List[Dict[str, str]], List[AnyMessage], List[Document]], 
+    system: str = "",
+    tools: List[Dict[str, str]] = []
+) -> int:
     """
-    Count the number of tokens in a list of messages for a given Anthropic model.
+    Count tokens in messages for Anthropic models.
     
     Args:
-        messages (list): A list of message dictionaries with 'role' and 'content'.
-        system (str): The system message to provide context for the conversation.
-    Example:
-        ```bash
-
-        response = client.messages.count_tokens(
-            system="You are a scientist",
-            messages=[{
-                "role": "user",
-                "content": "Hello, Claude"
-            }],
-        )
-
-        data = response.json()
-        print(f"Total tokens: {data['total_tokens']}")
-
-        return int(data['total_tokens'])
-
-        ```
-
+        messages: List of message dicts OR LangGraph AnyMessage objects OR LangChain Document objects
+        system: System message for context
+        tools: List of tool descriptions for context
+        
     Returns:
-        int: The total number of tokens in the messages.
+        int: Total token count
     """
-
     try:
-        response = client.messages.count_tokens(
-            system=system or "You are a helpful assistant.",
-            messages=messages,
+        # Handle empty messages
+        if not messages:
+            return 0
+            
+        # Detect input type and convert to required format
+        first_item = messages[0]
+        
+        if isinstance(first_item, Document):
+            # For Document objects, count tokens in page_content
+            # Create a single user message with all document content
+            combined_content = "\n\n".join(doc.page_content for doc in messages)
+            formatted_messages = [{"role": "user", "content": combined_content}]
+            
+        elif isinstance(first_item, dict):
+            # Already in correct format
+            formatted_messages = messages
+            
+        elif hasattr(first_item, "type") and hasattr(first_item, "content"):
+            # Convert AnyMessage objects (HumanMessage, AIMessage, etc.)
+            formatted_messages = [
+                {
+                    "role": "assistant" if msg.type == "ai" else msg.type,
+                    "content": msg.content
+                }
+                for msg in messages
+            ]
+        else:
+            raise ValueError(f"Unsupported message type: {type(first_item)}")
+        
+        response = anthropic_client.messages.count_tokens(
+            model="claude-sonnet-4-5",
+            system=system or "You are a scientist.",
+            tools=tools,
+            messages=formatted_messages,
         )
-
-        return int(response.json()['total_tokens'])
+        return response.input_tokens
+        
     except Exception as e:
-        logging.error(f"Error counting tokens with Anthropic: {e}")
+        logging.error(f"Error counting tokens: {e}")
         return 0

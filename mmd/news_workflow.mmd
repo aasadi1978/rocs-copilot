@@ -1,0 +1,19 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	query_news(query_news)
+	retrieve(retrieve)
+	answer(answer)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> query_news;
+	query_news -.-> __end__;
+	query_news -. &nbsp;tools&nbsp; .-> retrieve;
+	retrieve --> answer;
+	answer --> __end__;
+	classDef default fill: #671CAA, font-family: FedEx Sans, sans-serif, Arial,  font-size: 12px,line-height:1.2
+	classDef last fill: #E45528
+	classDef first fill: #E45528

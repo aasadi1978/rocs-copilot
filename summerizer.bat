@@ -6,17 +6,17 @@ if not defined in_subprocess (cmd /k set in_subprocess=y ^& %0 %*) & exit )
 call cls
 
 echo ======================================================================
-echo    FenixBot: A private AI-powered chatbot for private use
+echo    Article summerizer: A private AI-powered chatbot for private use
 echo ======================================================================
 
 tasklist /fi "ImageName eq python.exe" /fo csv 2>NUL | find /I "python.exe">NUL
 if "%ERRORLEVEL%"=="0" taskkill /IM python.exe /F >NUL
 
 call .venv\Scripts\activate
-python backend\tools\rag\workflow.py
+python backend\tools\article_generator\_main_.py
 if "%ERRORLEVEL%" NEQ "0" (
     echo #####################################################################################
-    echo Failed to start the FenixBot application. Please check the error messages above.
+    echo Failed to start the chatbot application. Please check the error messages above.
     echo #####################################################################################
     exit /b 1
 )

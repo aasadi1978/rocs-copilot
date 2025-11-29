@@ -12,15 +12,22 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from doc_loader.load_video_audio import transcribe_audio
 from doc_loader.load_url import transcribe_url
 from doc_loader.document_repository import DocumentRepository
+from initialize_app.create_app import INITIALIZED_FLASK_APP as app
+from models.anthropic.token_counter import count_tokens_anthropic
 
 
 class DocumentImporter:
 
     def __init__(
             self, 
-            data_sources: Union[List[Union[str, Path]], None] = None):
+            data_sources: Union[List[Union[str, Path]], None] = None,
+            chunk_size: int = 1000,
+            chunk_overlap: int = 200,
+            use_cache: bool = True):
         
-        self.initialize_chunking_settings()
+        self.__chunk_size = chunk_size
+        self.__chunk_overlap = chunk_overlap
+        self.__use_cache = use_cache
         self.__data_sources = data_sources or [Path().resolve() / "docs"]
         self.__documents: List[Document] = []
     
@@ -28,18 +35,6 @@ class DocumentImporter:
     def documents(self) -> List[Document]:
         return self.__documents or []
     
-    def initialize_chunking_settings(
-            self, chunk_size: int = 1000, chunk_overlap: int = 200, use_cache: bool = True):
-        """This function sets the configuration for document loading and chunking. The following parameters can be set:
-        Args:
-            chunk_size: Size of each document chunk - default is 1000 characters
-            chunk_overlap: Overlap between chunks: default is 200 characters
-            use_cache: Whether to use caching for loaded documents - default is True
-        """
-        self.__chunk_size = chunk_size
-        self.__chunk_overlap = chunk_overlap
-        self.__use_cache = use_cache
-
     def __load_doc(self, file_path: Union[str, Path]) -> List[Document]:
         """
         This function detects the file format and loads into langchain document using an appropriate langchain module.
@@ -50,21 +45,26 @@ class DocumentImporter:
         
         # Check cache first if enabled
         if self.__use_cache:
-            cached_docs = DocumentRepository.get_cached_documents(
-                source_path, 
-                self.__chunk_size, 
-                self.__chunk_overlap
-            )
+            cached_docs = []
+            with app.app_context():
+                cached_docs = DocumentRepository.get_cached_documents(
+                    source_path, 
+                    self.__chunk_size, 
+                    self.__chunk_overlap
+                )
+
             if cached_docs:
                 return cached_docs
-        
+    
         # Handle URLs separately
         if isinstance(file_path, str) and str(file_path).lower().startswith("http"):
             raw_documents = transcribe_url(file_path)
+            filename_lower = file_path.lower()
         else:
             # Handle file paths
             file_path = Path(file_path).resolve()
             raw_documents = []
+            filename_lower = file_path.name.lower()
 
             if file_path.suffix.lower() == ".pdf":
                 try:
@@ -96,12 +96,13 @@ class DocumentImporter:
         # Cache the split documents if caching is enabled
         if self.__use_cache and split_documents:
             try:
-                DocumentRepository.save_documents(
-                    source_path, 
-                    split_documents, 
-                    self.__chunk_size, 
-                    self.__chunk_overlap
-                )
+                with app.app_context():
+                    DocumentRepository.save_documents(
+                        filename_lower, 
+                        split_documents, 
+                        self.__chunk_size, 
+                        self.__chunk_overlap
+                    )
             except Exception as e:
                 logging.warning(f"Failed to cache documents for {source_path}: {e}")
 
@@ -141,6 +142,13 @@ class DocumentImporter:
             logging.info(f"Loading document: {file_path}")
             # load_doc now handles caching and splitting internally
             self.__documents.extend(self.__load_doc(file_path))
+        
+        try:
+            document_token_count = count_tokens_anthropic(messages=self.__documents)
+            logging.info(f"Total document token count for anthropic: {document_token_count}")
+        except Exception:
+            logging.warning("Failed to count document tokens.")
+            document_token_count = 0
 
     def __chunk_documents(self, documents: List[Document]) -> List[Document]:
         """

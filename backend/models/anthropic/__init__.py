@@ -18,7 +18,7 @@ if not api_key:
 anthropic_basic_model = ChatAnthropic(
     model="claude-haiku-4-5-20251001",
     temperature=0.7,
-    max_tokens=2048,  # Increased for news summarization tasks
+    # max_tokens=2048,  # Increased for news summarization tasks
     timeout=None,
     max_retries=2,
     api_key=api_key
@@ -26,9 +26,9 @@ anthropic_basic_model = ChatAnthropic(
 )
 
 anthropic_advanced_model = ChatAnthropic(
-    model="claude-sonnet-4-5-20251022",
-    temperature=0.7,
-    max_tokens=1024,
+    model="claude-opus-4-1-20250805",
+    temperature=0.2,
+    # max_tokens=2048,
     timeout=None,
     max_retries=2,
     api_key=api_key

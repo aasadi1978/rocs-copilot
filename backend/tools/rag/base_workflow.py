@@ -11,24 +11,41 @@ This abstract base class encapsulates common patterns used across RAG-based work
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import List, Union, Optional
+from typing import List, Union, Optional, Annotated, TypedDict
 from langchain_anthropic import ChatAnthropic as AIChatClass
 from langchain_core.documents import Document
-from langchain_core.messages import HumanMessage
-from langgraph.graph import MessagesState, StateGraph, START, END
+from langchain_core.messages import AnyMessage
+from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 from dotenv import load_dotenv
 
 from models import llm_basic
 from doc_loader.doc_importer import DocumentImporter
-from doc_loader.grade_docs import grade_documents
 from utils.draw_graph import disp_state_graph
 from tools.rag.create_retriever import Retriever
 
 load_dotenv(override=True)
 
 
-class BaseWorkflow(ABC):
+class RAGState(TypedDict):
+    """Represents the state of a RAG conversation session.
+    
+    Attributes:
+        messages: Conversation history with automatic message merging
+        conversation_id: Unique identifier for the conversation session
+        topic: Main topic or subject being discussed (e.g., 'news', 'research', 'qa')
+        context: Additional context or metadata for the RAG workflow
+        retrieved_docs: Count of documents retrieved in current session
+    """
+    messages: Annotated[List[AnyMessage], add_messages]
+    conversation_id: str
+    topic: str
+    context: Optional[str]
+    retrieved_docs: int
+
+
+class BaseWorkFlow(ABC):
     """Abstract base class for RAG workflow types.
     
     Provides common RAG infrastructure:
@@ -54,7 +71,6 @@ class BaseWorkflow(ABC):
         self._llm_with_tools: Optional[AIChatClass] = None
         self._retriever: Optional[Retriever] = None
         self._tools: dict = {}
-        self._decision_flow: Optional[StateGraph] = None
 
     def _load_documents(self,
                        data_sources: Union[List[Union[str, Path]], None] = None,
@@ -153,6 +169,9 @@ class BaseWorkflow(ABC):
             
         Raises:
             ValueError: If initialization fails
+        
+        NOTE: This method must be overridden by subclasses to provide
+        workflow-specific initialization logic.
         """
         pass
 
@@ -162,6 +181,9 @@ class BaseWorkflow(ABC):
         
         This method should provide a simple demonstration of how to use
         the workflow, useful for testing and documentation.
+        
+        NOTE: This method must be overridden by subclasses to provide
+        workflow-specific example logic.
         """
         pass
 
@@ -181,73 +203,6 @@ class BaseWorkflow(ABC):
         """
         return self._llm_model
 
-    def generate_query_or_respond(self, state: MessagesState):
-        """Call the model to generate a response based on the current state.
-        
-        Given the question, it will decide to retrieve using the retriever tool,
-        or simply respond to the user.
-        
-        Args:
-            state: Current message state
-            
-        Returns:
-            Updated state with model response
-        """
-        response = self._llm_with_tools.invoke(state["messages"])
-        return {"messages": [response]}
-
-    def rewrite_question(self, state: MessagesState):
-        """Rewrite the original user question for better retrieval.
-        
-        The retriever tool can return potentially irrelevant documents, which indicates
-        a need to improve the original user question. This node rewrites the question
-        to improve semantic matching.
-        
-        Args:
-            state: Current message state
-            
-        Returns:
-            Updated state with rewritten question
-        """
-        REWRITE_PROMPT = (
-            "Look at the input and try to reason about the underlying semantic intent / meaning.\n"
-            "Here is the initial question:"
-            "\n ------- \n"
-            "{question}"
-            "\n ------- \n"
-            "Formulate an improved question:"
-        )
-
-        messages = state["messages"]
-        question = messages[0].content
-        prompt = REWRITE_PROMPT.format(question=question)
-        response = self._llm_model.invoke([{"role": "user", "content": prompt}])
-        return {"messages": [HumanMessage(content=response.content)]}
-
-    def generate_answer(self, state: MessagesState):
-        """Generate an answer using retrieved context.
-        
-        Args:
-            state: Current message state including question and retrieved context
-            
-        Returns:
-            Updated state with generated answer
-        """
-        GENERATE_PROMPT = (
-            "You are an assistant for question-answering tasks. "
-            "Use the following pieces of retrieved context to answer the question. "
-            "If you don't know the answer, just say that you don't know. "
-            "Use three sentences maximum and keep the answer concise.\n"
-            "Question: {question} \n"
-            "Context: {context}"
-        )
-
-        question = state["messages"][0].content
-        context = state["messages"][-1].content
-        prompt = GENERATE_PROMPT.format(question=question, context=context)
-        response = self._llm_model.invoke([{"role": "user", "content": prompt}])
-        return {"messages": [response]}
-
     def _get_retriever_tool(self):
         """Get the retriever tool for this workflow.
         
@@ -261,7 +216,57 @@ class BaseWorkflow(ABC):
             raise ValueError("Retriever is not initialized. Please call initialize() first with valid data sources.")
         return self._retriever.get_retriever_tool()
 
-    def _assemble_decision_flow(self) -> StateGraph:
+
+    def generate_query_or_respond(self, state: RAGState):
+        """Call the model to generate a response based on the current state.
+        
+        Given the question, it will decide to retrieve using the retriever tool,
+        or simply respond to the user.
+        
+        Args:
+            state: Current RAG state with messages and metadata
+            
+        Returns:
+            Updated state with model response
+        """
+        response = self._llm_with_tools.invoke(state["messages"])
+        return {"messages": [response]}
+
+    def generate_answer(self, state: RAGState):
+        """Generate an answer based on retrieved documents and user question.
+        
+        Args:
+            state: Current RAG state with messages and metadata
+        Returns:
+            Updated state with generated answer message
+        
+        
+        NOTE: This method can be overridden by subclasses to customize answer generation.
+        """
+
+        try:
+            GENERATE_PROMPT = (
+                "You are an assistant for question-answering tasks. "
+                "Use the following pieces of retrieved context to answer the question. "
+                "If you don't know the answer, just say that you don't know. "
+                "Use three sentences maximum and keep the answer concise.\n"
+                "Question: {question} \n"
+                "Context: {context}"
+            )
+
+
+            question = state["messages"][0].content
+            context = state["messages"][-1].content
+            prompt = GENERATE_PROMPT.format(question=question, context=context)
+            response = self._llm_with_tools.invoke([{"role": "user", "content": prompt}])
+
+            return {"messages": [response]}
+        
+        except Exception as e:
+            logging.error(f"Error generating answer: {e}")
+            return {"messages": []}
+
+    def assemble_decision_flow(self) -> StateGraph:
         """Assemble the decision flow graph with nodes and edges.
         
         This method creates the base RAG decision flow. Subclasses can override this
@@ -272,98 +277,63 @@ class BaseWorkflow(ABC):
             
         Raises:
             ValueError: If retriever tool not available
+        
+        NOTE: This method can be overridden by subclasses to customize the decision flow.
         """
-        retriever_tool = self._get_retriever_tool()
-        if not retriever_tool:
-            raise ValueError("Failed to get retriever tool. Check initialization logs for details.")
 
-        decision_flow = StateGraph(MessagesState)
+        try:
+            retriever_tool = self._get_retriever_tool()
+            if not retriever_tool:
+                raise ValueError("Failed to get retriever tool. Check initialization logs for details.")
 
-        # Define the nodes we will cycle between
-        decision_flow.add_node(self.generate_query_or_respond)
-        decision_flow.add_node("retrieve", ToolNode([retriever_tool]))
-        decision_flow.add_node(self.rewrite_question)
-        decision_flow.add_node(self.generate_answer)
+            _state_graph = StateGraph(RAGState)
 
-        decision_flow.add_edge(START, "generate_query_or_respond")
+            # Define the nodes we will cycle between
+            _state_graph.add_node(self.generate_query_or_respond)
+            _state_graph.add_node("retrieve", ToolNode([retriever_tool]))
+            
+            _state_graph.add_edge(START, "generate_query_or_respond")
 
-        # Decide whether to retrieve
-        decision_flow.add_conditional_edges(
-            "generate_query_or_respond",
-            # Assess LLM decision (call retriever_tool or respond to the user)
-            tools_condition,
-            {
-                # Translate the condition outputs to nodes in our graph
-                "tools": "retrieve",
-                END: END,
-            },
-        )
+            # Decide whether to retrieve
+            _state_graph.add_conditional_edges(
+                "generate_query_or_respond",
+                # Assess LLM decision (call retriever_tool or respond to the user)
+                tools_condition,
+                {
+                    # Translate the condition outputs to nodes in our graph
+                    "tools": "retrieve",
+                    END: END,
+                },
+            )
 
-        # Edges taken after the retrieve node is called
-        decision_flow.add_conditional_edges(
-            "retrieve",
-            # Assess agent decision
-            grade_documents,
-        )
-        decision_flow.add_edge("generate_answer", END)
-        decision_flow.add_edge("rewrite_question", "generate_query_or_respond")
+            _state_graph.add_edge("retrieve", "generate_answer")
+            _state_graph.add_edge("generate_answer", END)
 
-        # Usage Examples: Advanced: Custom Workflow by subclassing BaseWorkflow
-        # Basic: Standard Workflow
-        # workflow = Workflow()
-        # workflow.initialize(data_sources=[...])
-        # workflow.build_graph()  # Uses default flow
-        # 
-        # class CustomWorkflow(BaseWorkflow):
-        #     def _assemble_decision_flow(self):
-        #         # Get the base decision flow
-        #         decision_flow = super()._assemble_decision_flow()
-                
-        #         # Add custom nodes
-        #         decision_flow.add_node("summarize", self.summarize_results)
-        #         decision_flow.add_node("translate", self.translate_answer)
-                
-        #         # Add custom edges
-        #         decision_flow.add_edge("generate_answer", "summarize")
-        #         decision_flow.add_edge("summarize", "translate")
-        #         decision_flow.add_edge("translate", END)
-        # 
-        #         return decision_flow
-        # 
-        # Advanced: Modify flow before compilation:
-        # workflow.initialize(data_sources=[...])
-        # # Manually assemble if needed
-        # workflow._decision_flow = workflow._assemble_decision_flow()
-        # # Add custom modifications
-        # workflow._decision_flow.add_node("custom_step", custom_function)
-        # # Then compile
-        # workflow._workflow_graph = workflow._decision_flow.compile()
+        except Exception as e:
 
-        return decision_flow
-
-    def build_graph(self, graph_name: str = "workflow_graph"):
-        """Build the RAG workflow graph by assembling and compiling the decision flow.
+            logging.error(f"Error assembling decision flow: {e}")
+            _state_graph = StateGraph(RAGState)
         
-        This method:
-        1. Calls _assemble_decision_flow() to create the graph structure
-        2. Stores it in self._decision_flow for potential modifications
-        3. Compiles it into the executable workflow graph
+        return _state_graph
+
+
+    def display_state_graph(self, graph_name: str = "workflow_graph"):
+        """Visualize the state graph.
         
-        Subclasses can override _assemble_decision_flow() to customize the graph structure
-        before compilation.
-        
-        Args:
-            graph_name: Name for the generated graph diagram file
+        This method compiles the decision flow into an executable graph
+        and saves a visualization using disp_state_graph.
         """
-        # Assemble the decision flow (can be overridden by subclasses)
-        self._decision_flow = self._assemble_decision_flow()
-        
+
         # Compile the decision flow into executable graph
-        self._workflow_graph = self._decision_flow.compile()
+        disp_state_graph(self._get_compiled_graph(), mmd_file_name=f"{graph_name}.mmd")
+    
+    def _get_compiled_graph(self):
+        """Compile the decision flow into an executable graph."""
+        self._workflow_graph = self._workflow_graph or self.assemble_decision_flow().compile()
+        return self._workflow_graph
 
-        disp_state_graph(self._workflow_graph, mmd_file_name=f"{graph_name}.mmd")
-
-    def stream_chat(self, messages: list):
+    
+    def stream_chat(self, messages: List[RAGState] = []):
         """Stream chat responses with conversation history.
         
         Args:
@@ -375,10 +345,13 @@ class BaseWorkflow(ABC):
         Raises:
             ValueError: If graph not built
         """
-        if not self._workflow_graph:
-            raise ValueError("Graph not built. Call build_graph() first.")
+
+        graph: StateGraph =  self._get_compiled_graph()
+
+        if not graph:
+            raise ValueError("Graph not built. Call compile_and_save_graph() first.")
         
-        for chunk in self._workflow_graph.stream({"messages": messages}):
+        for chunk in graph.stream({"messages": messages}):
             for node, update in chunk.items():
                 # Yield the node name and the latest message
                 if "messages" in update and update["messages"]:

@@ -3,8 +3,9 @@ import hashlib
 from typing import List, Dict, Any
 from datetime import datetime
 from sqlalchemy import JSON, Column, DateTime, Integer, String
-from initialize_app.create_app import SQLALCHEMY_DB
+from initialize_app.create_app import SQLALCHEMY_DB, INITIALIZED_FLASK_APP as app
 from langchain_core.documents import Document
+from models.anthropic.token_counter import count_tokens_anthropic
 
 
 class DocumentRepository(SQLALCHEMY_DB.Model):
@@ -24,6 +25,7 @@ class DocumentRepository(SQLALCHEMY_DB.Model):
     timestamp = Column(DateTime, default=datetime.now, nullable=False)
     chunk_size = Column(Integer, default=1000)  # Store chunking parameters
     chunk_overlap = Column(Integer, default=200)
+    token_count = Column(Integer, default=0)  # Optional: store token count
 
     def __init__(self, **kwargs):
         self.source_hash = kwargs.get("source_hash")
@@ -33,6 +35,7 @@ class DocumentRepository(SQLALCHEMY_DB.Model):
         self.timestamp = kwargs.get("timestamp", datetime.now())
         self.chunk_size = kwargs.get("chunk_size", 1000)
         self.chunk_overlap = kwargs.get("chunk_overlap", 200)
+        self.token_count = kwargs.get("token_count", 0)
 
     @staticmethod
     def _generate_source_hash(source_path: str, chunk_size: int, chunk_overlap: int) -> str:
@@ -87,46 +90,55 @@ class DocumentRepository(SQLALCHEMY_DB.Model):
             return None
 
     @classmethod
-    def save_documents(cls, source_path: str, documents: List[Document], 
+    def save_documents(cls, src_path_or_name: str, documents: List[Document], 
                       chunk_size: int = 1000, chunk_overlap: int = 200) -> 'DocumentRepository':
         """
         Save split documents to the cache.
         If a record already exists for this source, it will be updated.
         """
         try:
-            source_hash = cls._generate_source_hash(source_path, chunk_size, chunk_overlap)
+            source_hash = cls._generate_source_hash(src_path_or_name, chunk_size, chunk_overlap)
             
             # Check if record exists
             existing_record: DocumentRepository = cls.query.filter(cls.source_hash == source_hash).first()
             
             if existing_record:
                 # Update existing record
+                document_token_count = existing_record.token_count or count_tokens_anthropic(documents)
+
                 existing_record.split_documents = cls._serialize_documents(documents)
                 existing_record.document_count = len(documents)
                 existing_record.timestamp = datetime.now()
                 existing_record.chunk_size = chunk_size
                 existing_record.chunk_overlap = chunk_overlap
+                existing_record.token_count = document_token_count
                 SQLALCHEMY_DB.session.commit()
-                logging.info(f"Updated cache: {len(documents)} documents for {source_path}")
+                logging.info(f"Updated cache: {len(documents)} documents for {src_path_or_name}")
                 return existing_record
             else:
                 # Create new record
+
+                document_token_count = count_tokens_anthropic(documents)
+
                 record = cls(
                     source_hash=source_hash,
-                    source_path=str(source_path),
+                    source_path=str(src_path_or_name),
                     split_documents=cls._serialize_documents(documents),
                     document_count=len(documents),
                     chunk_size=chunk_size,
-                    chunk_overlap=chunk_overlap
+                    chunk_overlap=chunk_overlap,
+                    token_count=document_token_count
                 )
                 SQLALCHEMY_DB.session.add(record)
                 SQLALCHEMY_DB.session.commit()
                 SQLALCHEMY_DB.session.refresh(record)
-                logging.info(f"Cached {len(documents)} split documents for {source_path}")
+                logging.info(f"Cached {len(documents)} split documents for {src_path_or_name}")
+
+                
                 return record
                 
         except Exception as e:
-            logging.error(f"Error saving documents to cache for {source_path}: {e}")
+            logging.error(f"Error saving documents to cache for {src_path_or_name}: {e}")
             SQLALCHEMY_DB.session.rollback()
             raise
 
@@ -168,3 +180,6 @@ class DocumentRepository(SQLALCHEMY_DB.Model):
         except Exception as e:
             logging.error(f"Error listing cached sources: {e}")
             return []
+
+with app.app_context():
+    SQLALCHEMY_DB.create_all()

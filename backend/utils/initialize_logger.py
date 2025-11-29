@@ -2,14 +2,16 @@ import logging
 import logging.handlers
 from pathlib import Path
 import sys
+from os import getlogin
 
 
 def initialize_logger(
-    log_level: int = logging.INFO,
-    max_bytes: int = 10 * 1024 * 1024,  # 10MB
-    backup_count: int = 1,
-    console_output: bool = True,
-    user_name: str = 'fenixbot'
+        log_file_path: Path = None,
+        log_level: int = logging.INFO,
+        max_bytes: int = 10 * 1024 * 1024,  # 10MB
+        backup_count: int = 1,
+        console_output: bool = True,
+        user_name: str = str(getlogin())
 ) -> logging.Logger:
     """
     Initialize logger with file and optional console output.
@@ -25,7 +27,7 @@ def initialize_logger(
         Configured logger instance
     """
 
-    log_file_path = Path().resolve().parent / 'logs' / 'status.log'
+    log_file_path = log_file_path or Path().resolve().parent / 'logs' / 'status.log'
 
     # Ensure log directory exists
     log_file_path.parent.mkdir(parents=True, exist_ok=True)

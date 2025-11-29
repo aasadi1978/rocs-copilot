@@ -6,13 +6,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from tools.rag.base_workflow import BaseWorkflow
+from tools.rag.base_workflow import BaseWorkFlow
 
 
-class Workflow(BaseWorkflow):
+class Workflow(BaseWorkFlow):
     """A RAG Workflow class for document retrieval and question answering.
     
-    Extends BaseWorkflow to provide:
+    Extends BaseWorkFlow to provide:
     - Document retrieval using semantic search
     - Agentic RAG system with tool binding
     - Document grading for relevance
