@@ -1,7 +1,7 @@
 setlocal enabledelayedexpansion
 @echo off
 
-set APP_NAME=fenix
+set APP_NAME=rocs-copilot
 
 call .venv/Scripts/activate
 echo ------------------------------------------------------------

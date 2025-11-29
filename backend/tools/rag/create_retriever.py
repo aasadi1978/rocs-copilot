@@ -33,7 +33,8 @@ class Retriever:
         self,
         documents: Optional[List[Document]] = [],
         name: str = "retriever",
-        description: str = "Retrieves relevant documents from a knowledge base."
+        description: str = "Retrieves relevant documents from a knowledge base.",
+        embedding: Optional[HuggingFaceEmbeddings] = None
     ):
         self.name = name
         self.description = description
@@ -41,7 +42,7 @@ class Retriever:
         try:
             # Initialize embeddings using HuggingFace (free, no API key required)
             # Using a lightweight model that runs locally
-            embedding = HuggingFaceEmbeddings(
+            embedding = embedding or HuggingFaceEmbeddings(
                 model_name="sentence-transformers/all-MiniLM-L6-v2",
                 model_kwargs={'device': 'cpu'},
                 encode_kwargs={'normalize_embeddings': True}

@@ -9,31 +9,38 @@ from langchain_community.document_loaders import (
 )
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from tools.rag.load_video_audio import transcribe_audio
-from tools.rag.load_url import transcribe_url
-from tools.rag.document_repository import DocumentRepository
+from doc_loader.load_video_audio import transcribe_audio
+from doc_loader.load_url import transcribe_url
+from doc_loader.document_repository import DocumentRepository
 
 
-class DocLoader:
+class DocumentImporter:
 
     def __init__(
             self, 
-            data_sources: Union[List[Union[str, Path]], None] = None,
-            chunk_size: int = 1000,
-            chunk_overlap: int = 200,
-            use_cache: bool = True):
+            data_sources: Union[List[Union[str, Path]], None] = None):
         
-        self.__data_sources = data_sources or []
-        self.__documents = []
-        self.__chunk_size = chunk_size
-        self.__chunk_overlap = chunk_overlap
-        self.__use_cache = use_cache
+        self.initialize_chunking_settings()
+        self.__data_sources = data_sources or [Path().resolve() / "docs"]
+        self.__documents: List[Document] = []
     
     @property
     def documents(self) -> List[Document]:
-        return self.__documents
+        return self.__documents or []
+    
+    def initialize_chunking_settings(
+            self, chunk_size: int = 1000, chunk_overlap: int = 200, use_cache: bool = True):
+        """This function sets the configuration for document loading and chunking. The following parameters can be set:
+        Args:
+            chunk_size: Size of each document chunk - default is 1000 characters
+            chunk_overlap: Overlap between chunks: default is 200 characters
+            use_cache: Whether to use caching for loaded documents - default is True
+        """
+        self.__chunk_size = chunk_size
+        self.__chunk_overlap = chunk_overlap
+        self.__use_cache = use_cache
 
-    def load_doc(self, file_path: Union[str, Path]) -> List[Document]:
+    def __load_doc(self, file_path: Union[str, Path]) -> List[Document]:
         """
         This function detects the file format and loads into langchain document using an appropriate langchain module.
         Uses caching to avoid reprocessing the same documents.
@@ -84,7 +91,7 @@ class DocLoader:
                 raw_documents = transcribe_audio(file_path)
         
         # Split the documents
-        split_documents = self.split_docs(raw_documents)
+        split_documents = self.__chunk_documents(raw_documents)
         
         # Cache the split documents if caching is enabled
         if self.__use_cache and split_documents:
@@ -101,23 +108,21 @@ class DocLoader:
         return split_documents
 
     def load_docs(self, 
-                  data_sources: Union[List[Union[str, Path]], None] = None) -> List[Document]:
+                  document_paths: Union[List[Union[str, Path]], None] = None) -> List[Document]:
         """
         Input:
-            data_sources: Optional list of file paths, directories or URLs to load documents from.
+            document_paths: Optional list of file paths, directories or URLs to load documents from.
 
         This function detects the file format in a provided directory and/or file paths and loads into
         langchain Document using an appropriate langchain module. Supporting file types include 
         PDF, PPTX, DOCX, YouTube URLs, web pages, and audio/video files.
         """
 
-        data_sources =  data_sources or []
-        data_sources.extend(self.__data_sources)
-
-        documents = []
+        document_paths =  document_paths or []
+        document_paths.extend(self.__data_sources)
         source_document_files = []
 
-        for src_pth  in data_sources:
+        for src_pth  in document_paths:
 
             src_path = Path(src_pth).resolve()
     
@@ -135,9 +140,9 @@ class DocLoader:
 
             logging.info(f"Loading document: {file_path}")
             # load_doc now handles caching and splitting internally
-            self.__documents.extend(self.load_doc(file_path))
+            self.__documents.extend(self.__load_doc(file_path))
 
-    def split_docs(self, documents: List[Document]) -> List[Document]:
+    def __chunk_documents(self, documents: List[Document]) -> List[Document]:
         """
         This function splits the documents into smaller chunks using langchain text splitters.
         """

@@ -1,6 +1,6 @@
 import logging
 from langchain_core.messages import SystemMessage, HumanMessage
-from models.open_ai.openai_agent import openai_dynamic_agent as client
+from models import llm_basic
 
 
 def translate_text(
@@ -27,7 +27,7 @@ def translate_text(
         ]
 
         # Configure the model with temperature
-        llm = client.bind(temperature=0.7)
+        llm = llm_basic.bind(temperature=0.7)
         
         # Invoke the model
         response = llm.invoke(messages)
@@ -39,3 +39,15 @@ def translate_text(
         system_reply = f"Error during translation: {str(e)}"
         
     return system_reply
+
+if __name__ == "__main__":
+    sample_text = (
+        "Dear Team,\n\n"
+        "I hope this message finds you well. I wanted to update you on our latest logistics strategies "
+        "that aim to enhance our supply chain efficiency and reduce costs. "
+        "Your feedback and insights will be invaluable as we move forward with these initiatives.\n\n"
+        "Best regards,\n"
+        "Alex"
+    )
+    translated = translate_text(sample_text, target_language="French")
+    print("Translated Text:\n", translated)
