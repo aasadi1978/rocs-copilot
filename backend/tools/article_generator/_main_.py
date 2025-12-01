@@ -3,10 +3,9 @@
 
 import logging
 from os import getenv
-from pathlib import Path
 from langchain_anthropic import ChatAnthropic
 from tools.article_generator.article_generator import ArticleGenerator
-from tools.article_generator.article_prompts import ArticleRole
+from tools.article_generator.article_profiles import FEDEX_SME_SURVEY as article_profile
 # from models import llm_basic, llm_advanced
 
 llm = ChatAnthropic(
@@ -19,23 +18,21 @@ llm = ChatAnthropic(
     # model_kwargs={ "http_client": HTTP_CLIENT }
 )
 
-logging.info("McKinsey consultant - Economic Report Analysis")
-docs_path = Path().resolve() / 'docs'
+logging.info(f"{str(article_profile['role'])} ...")
+filename = article_profile['filename']
+output_path = article_profile['output_path']
+output_path.mkdir(parents=True, exist_ok=True)
+digest_opportunities_focus=article_profile['digest_opportunities_focus']
 
 generator = ArticleGenerator(llm_model=llm)
 generator.initialize(
-    documents=[
-        docs_path / 'the-state-of-ai-in-2025-agents-innovation-and-transformation.pdf',
-        docs_path / '2025-FedEx-Global-Economic-Impact-Report.pdf',
-        docs_path / 'en-fr_pdf_na_CDG_impact.pdf'
-    ],
-
-    role=ArticleRole.MCKINSEY_CONSULTANT,
-    article_style="formal",
-    target_audience="FedEx Express leadership team",
-    article_length="medium",
-    focus_areas="FedEx growth and profitability in Europe, the impact of AI and automation on logistics, recommendations for strategic investments",
-    consolidate_docs=True
+    documents=article_profile['documents'],
+    role=article_profile['role'],
+    article_style=article_profile['article_style'],
+    target_audience=article_profile['target_audience'],
+    article_length=article_profile['article_length'],
+    focus_areas=article_profile['focus_areas'],
+    consolidate_docs=article_profile['consolidate_docs']
 )
 
 # Get and save articles
@@ -43,23 +40,37 @@ articles = generator.get_articles()
 logging.info(f"✓ Generated {len(articles)} article(s)\n")
 
 # Save as Markdown
-generator.save_articles_to_file('fedex-global-economic-report-summary.md', format='markdown')
-logging.info("✓ Saved to fedex-global-economic-report-summary.md\n")
+generator.save_articles_to_file(f'{output_path}/{filename}.md', format='markdown')
+logging.info(f"✓ Saved to {output_path}/{filename}.md\n")
 
 # Save as DOCX for LinkedIn
-generator.save_articles_to_file('fedex-global-economic-report-summary.docx', format='docx')
-logging.info("✓ Saved to fedex-global-economic-report-summary.docx (ready for LinkedIn)\n")
+generator.save_articles_to_file(f'{output_path}/{filename}.docx', format='docx')
+logging.info(f"✓ Saved to {output_path}/{filename}.docx (ready for LinkedIn)\n")
 
 # Generate digest
-_opportunities_focus="Growth opportunities and strategic recommendations for profitability of FedEx Express in Europe"
-logging.info(f"Generating digest focused on {_opportunities_focus} ...")
-digest = generator.get_digest(digest_focus=_opportunities_focus)
+
+logging.info(f"Generating digest focused on {digest_opportunities_focus} ...")
+digest = generator.get_digest(digest_focus=digest_opportunities_focus)
 
 # Save digest
-with open('digest_fedex-global-economic-report-summary.md', 'w', encoding='utf-8') as f:
+with open(f'{output_path}/digest_{filename}.md', 'w', encoding='utf-8') as f:
     f.write(digest)
-logging.info("✓ Digest saved to digest_fedex-global-economic-report-summary.md")
+logging.info(f"✓ Digest saved to {output_path}/digest_{filename}.md")
 
 # Save as DOCX for LinkedIn
-generator.save_articles_to_file('digest_fedex-global-economic-report-summary.docx', format='docx')
-logging.info("✓ Saved to digest_fedex-global-economic-report-summary.docx (ready for LinkedIn)\n")
+generator.save_articles_to_file(f'{output_path}/digest_{filename}.docx', format='docx')
+logging.info(f"✓ Saved to {output_path}/digest_{filename}.docx (ready for LinkedIn)\n")
+
+def interactive_chat():
+    """Example: Using the integrated interactive chat interface for Q&A with history."""
+    print("\n" + "="*80)
+    print("EXAMPLE 7: Interactive Q&A with Article Generator + History")
+    print("="*80 + "\n")
+    print("Starting interactive chat mode with article generator...")
+    print("This uses the integrated api.interactive_chat module with full history support.\n")
+    
+    # Use the integrated interactive chat system
+    from api.interactive_chat import start_interactive_chat
+    
+    # Start in article mode
+    start_interactive_chat(mode="article")

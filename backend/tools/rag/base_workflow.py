@@ -118,13 +118,15 @@ class BaseWorkFlow(ABC):
     def _setup_retriever_and_tools(self,
                                    name: str = "Retriever",
                                    description: str = "Retrieves relevant documents based on the query",
-                                   additional_tools: Optional[dict] = None) -> None:
+                                   additional_tools: Optional[dict] = None,
+                                   multilingual: bool = False) -> None:
         """Setup retriever tool and bind all tools to LLM.
         
         Args:
             name: Name for the retriever tool
             description: Description of what the retriever does
             additional_tools: Optional dict of additional tools to bind (e.g., {'tool_name': [tool_list]})
+            multilingual: If True, use multilingual embeddings for Chinese/English support
             
         Raises:
             ValueError: If documents not loaded or retriever creation fails
@@ -136,7 +138,8 @@ class BaseWorkFlow(ABC):
         self._retriever = Retriever(
             documents=self._documents,
             name=name,
-            description=description
+            description=description,
+            multilingual=multilingual
         )
         
         retriever_tool = self._retriever.get_retriever_tool()

@@ -34,19 +34,33 @@ class Retriever:
         documents: Optional[List[Document]] = [],
         name: str = "retriever",
         description: str = "Retrieves relevant documents from a knowledge base.",
-        embedding: Optional[HuggingFaceEmbeddings] = None
+        embedding: Optional[HuggingFaceEmbeddings] = None,
+        multilingual: bool = False
     ):
         self.name = name
         self.description = description
         
         try:
             # Initialize embeddings using HuggingFace (free, no API key required)
-            # Using a lightweight model that runs locally
-            embedding = embedding or HuggingFaceEmbeddings(
-                model_name="sentence-transformers/all-MiniLM-L6-v2",
-                model_kwargs={'device': 'cpu'},
-                encode_kwargs={'normalize_embeddings': True}
-            )
+            if embedding:
+                # Use provided embedding
+                pass
+            elif multilingual:
+                # Use multilingual model for Chinese + English documents
+                # This model supports 100+ languages including Chinese and English
+                logging.info("Using multilingual embedding model for Chinese/English support")
+                embedding = HuggingFaceEmbeddings(
+                    model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+                    model_kwargs={'device': 'cpu'},
+                    encode_kwargs={'normalize_embeddings': True}
+                )
+            else:
+                # Default: English-only lightweight model
+                embedding = HuggingFaceEmbeddings(
+                    model_name="sentence-transformers/all-MiniLM-L6-v2",
+                    model_kwargs={'device': 'cpu'},
+                    encode_kwargs={'normalize_embeddings': True}
+                )
             
             # Create vector store
             self._vectorstore = InMemoryVectorStore(embedding=embedding)
