@@ -3,13 +3,20 @@
 
 import logging
 from os import getenv
+from pathlib import Path
+import sys
 from langchain_anthropic import ChatAnthropic
 from tools.article_generator.article_generator import ArticleGenerator
-from tools.article_generator.article_profiles import FEDEX_SME_SURVEY as article_profile
+from tools.article_generator.article_profiles import AD_HOC_SUMMERIZER as article_profile
+from tools.article_generator.gen_key_insights import ArticleInsightsGenerator
+from models.anthropic.usage_tracker import USAGE_TRACKER_INSTANCE
 # from models import llm_basic, llm_advanced
 
+advanced_llm_name = "claude-opus-4-1-20250805"
+basic_llm_name = "claude-haiku-4-5-20251001"
+
 llm = ChatAnthropic(
-    model="claude-opus-4-1-20250805",
+    model=advanced_llm_name,
     temperature=0.2,
     # max_tokens=2048,
     timeout=None,
@@ -18,8 +25,11 @@ llm = ChatAnthropic(
     # model_kwargs={ "http_client": HTTP_CLIENT }
 )
 
+logging.info(f"Using LLM model: {llm.model}")
+USAGE_TRACKER_INSTANCE.initialize(model=str(llm.model))
+
 logging.info(f"{str(article_profile['role'])} ...")
-filename = article_profile['filename']
+filename = article_profile['filename'] + '-' + 'opus'
 output_path = article_profile['output_path']
 output_path.mkdir(parents=True, exist_ok=True)
 digest_opportunities_focus=article_profile['digest_opportunities_focus']
@@ -39,6 +49,15 @@ generator.initialize(
 articles = generator.get_articles()
 logging.info(f"✓ Generated {len(articles)} article(s)\n")
 
+#get executive summary email
+email_summary = ArticleInsightsGenerator().get_key_insights(
+    articles=articles, summary_length=150, max_takeaways=7)
+
+output_path_txt =Path(f'{output_path}/{filename}.txt')
+output_path_txt.write_text(email_summary, encoding='utf-8')
+
+logging.info(f"✓ Executive summary email saved to {output_path_txt}\n")
+
 # Save as Markdown
 generator.save_articles_to_file(f'{output_path}/{filename}.md', format='markdown')
 logging.info(f"✓ Saved to {output_path}/{filename}.md\n")
@@ -48,7 +67,6 @@ generator.save_articles_to_file(f'{output_path}/{filename}.docx', format='docx')
 logging.info(f"✓ Saved to {output_path}/{filename}.docx (ready for LinkedIn)\n")
 
 # Generate digest
-
 logging.info(f"Generating digest focused on {digest_opportunities_focus} ...")
 digest = generator.get_digest(digest_focus=digest_opportunities_focus)
 

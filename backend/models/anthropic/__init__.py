@@ -7,6 +7,7 @@ from langchain_core.messages import HumanMessage
 from dotenv import load_dotenv
 load_dotenv()
 
+
 # Get API key from environment
 api_key = getenv("ANTHROPIC_API_KEY")
 if not api_key:

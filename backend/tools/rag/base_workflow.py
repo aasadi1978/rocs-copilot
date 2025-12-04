@@ -55,6 +55,7 @@ class BaseWorkFlow(ABC):
     - Query/response generation
     - Document grading and question rewriting
     - Streaming and invocation interfaces
+
     """
 
     def __init__(self, llm_model: Optional[AIChatClass] = None):
@@ -197,14 +198,6 @@ class BaseWorkFlow(ABC):
             List of loaded documents, or None if not yet loaded
         """
         return self._documents
-
-    def get_llm_model(self) -> AIChatClass:
-        """Get the LLM model instance.
-        
-        Returns:
-            The LLM model used by this workflow
-        """
-        return self._llm_model
 
     def _get_retriever_tool(self):
         """Get the retriever tool for this workflow.

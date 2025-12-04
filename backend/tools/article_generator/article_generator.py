@@ -5,8 +5,11 @@ to analyze and create articles from various document types (news, scientific pap
 """
 
 import logging
+import hashlib
+import json
 from typing import List, Dict, Union, Literal
 from pathlib import Path
+from datetime import datetime, timedelta
 from pydantic import BaseModel, Field
 from langchain_core.documents import Document
 from tools.article_generator.article_prompts import (
@@ -21,6 +24,8 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode, tools_condition
 
 from tools.rag.base_workflow import BaseWorkFlow, RAGState
+from models.anthropic.token_counter import count_tokens_anthropic
+from models.anthropic.usage_tracker import USAGE_TRACKER_INSTANCE as tracker
 
 
 class ArticleStructure(BaseModel):
@@ -72,12 +77,13 @@ class ArticleGenerator(BaseWorkFlow):
         digest = generator.get_digest()
     """
     
-    def __init__(self, llm_model: AIChatClass = None):
+    def __init__(self, llm_model: AIChatClass = None, cache_dir: Union[str, Path] = None):
         """
         Initialize the article generator workflow.
         
         Args:
             llm_model: Optional LLM model. Defaults to llm_basic from models module
+            cache_dir: Optional cache directory. Defaults to '.article_cache' in workspace root
         """
         super().__init__(llm_model)
         self._articles: List[Dict] = []
@@ -89,6 +95,11 @@ class ArticleGenerator(BaseWorkFlow):
         self._focus_areas: str = None
         self._custom_role_description: str = None
         self._consolidate_docs: bool = False
+        self._cache_dir: Path = Path(cache_dir) if cache_dir else Path(".article_cache")
+        self._cache_enabled: bool = True
+        self._cache_expiry_days: int = 365
+        self._cache_key: str = None
+        self._total_tokens_used: int = 0
     
     def initialize(self,
                    documents: Union[List[str], List[Path]],
@@ -102,7 +113,9 @@ class ArticleGenerator(BaseWorkFlow):
                    chunk_overlap: int = 200,
                    name: str = "ArticleRetriever",
                    description: str = "Retrieves relevant document content for article generation",
-                   consolidate_docs: bool = False):
+                   consolidate_docs: bool = False,
+                   use_cache: bool = True,
+                   cache_expiry_days: int = 30):
         """
         Initialize the article generator with documents and role configuration.
         
@@ -119,6 +132,8 @@ class ArticleGenerator(BaseWorkFlow):
             name: Name for the retriever
             description: Description of the retriever
             consolidate_docs: Whether to consolidate documents before processing
+            use_cache: Whether to use persistent caching for generated articles
+            cache_expiry_days: Number of days before cache expires (default: 30)
             
         Raises:
             ValueError: If role is CUSTOM but no custom_role_description provided
@@ -143,6 +158,9 @@ class ArticleGenerator(BaseWorkFlow):
             self._article_length = article_length
             self._focus_areas = focus_areas
             self._consolidate_docs = consolidate_docs
+            self._cache_enabled = use_cache
+            self._cache_expiry_days = cache_expiry_days
+            self._total_tokens_used = 0
             
             # Get role context
             self._role_context = get_role_context(self._role, custom_role_description)
@@ -164,11 +182,17 @@ class ArticleGenerator(BaseWorkFlow):
                 description=description
             )
             
-            # Generate articles for all loaded documents
-            logging.info("Generating articles from documents...")
-            self._articles = self._generate_all_articles()
+            # Generate cache key based on configuration and documents
+            self._cache_key = self._generate_cache_key(documents)
             
-            logging.info(f"Article Generator initialized with {len(self._articles)} articles.")
+            # Try to load from cache
+            if self._cache_enabled:
+                cached_articles = self._load_from_cache()
+                if cached_articles:
+                    self._articles = cached_articles
+                    logging.info(f"Loaded {len(cached_articles)} articles from cache.")
+            
+            logging.info(f"Article Generator initialized successfully.")
             
         except Exception as e:
             logging.error(f"Error initializing article generator: {e}")
@@ -182,7 +206,7 @@ class ArticleGenerator(BaseWorkFlow):
             document: Document containing source content
             
         Returns:
-            Dictionary with article structure and metadata
+            Dictionary with article structure and metadata (including token counts)
         """
         try:
             # Create the prompt
@@ -195,9 +219,37 @@ class ArticleGenerator(BaseWorkFlow):
                 focus_areas=self._focus_areas
             )
             
+            # Count input tokens
+            input_tokens = count_tokens_anthropic(
+                messages=[{"role": "user", "content": prompt}],
+                system=""
+            )
+
+            tracker.track_input(messages=[{"role": "user", "content": prompt}], tools=[])
+            self._total_tokens_used += input_tokens
+            logging.info(f"Total tokens used: {self._total_tokens_used}")
+            
             # Use structured output
             structured_llm = self._llm_model.with_structured_output(ArticleStructure)
             response: ArticleStructure = structured_llm.invoke([{"role": "user", "content": prompt}])
+            
+            # Count output tokens by converting structured response to text
+            # Combine all response fields into a single content string
+            output_content = f"""Title: {response.title}
+Introduction: {response.introduction}
+Main Sections: {json.dumps(response.main_sections)}
+Conclusion: {response.conclusion}
+Key Insights: {json.dumps(response.key_insights)}
+Tags: {response.tags}"""
+            
+            output_tokens = count_tokens_anthropic(
+                messages=[{"role": "assistant", "content": output_content}],
+                system=""
+            )
+
+            self._total_tokens_used += output_tokens
+            logging.info(f"Total tokens: {self._total_tokens_used}")
+            tracker.track_output(output_content)
             
             return {
                 "title": response.title,
@@ -211,7 +263,10 @@ class ArticleGenerator(BaseWorkFlow):
                     "role": self._role.value,
                     "style": self._article_style,
                     "audience": self._target_audience,
-                    "original_length": len(document.page_content)
+                    "original_length": len(document.page_content),
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "total_tokens": input_tokens + output_tokens
                 }
             }
             
@@ -229,6 +284,121 @@ class ArticleGenerator(BaseWorkFlow):
                     "error": str(e)
                 }
             }
+    
+    def _generate_cache_key(self, documents: Union[List[str], List[Path]]) -> str:
+        """Generate a unique cache key based on documents and configuration.
+        
+        Args:
+            documents: List of document paths or URLs
+            
+        Returns:
+            MD5 hash string as cache key
+        """
+        # Create a string combining all relevant parameters
+        key_components = [
+            str(sorted([str(d) for d in documents])),
+            self._role.value,
+            str(self._custom_role_description),
+            self._article_style,
+            self._target_audience,
+            self._article_length,
+            str(self._focus_areas),
+            str(self._consolidate_docs)
+        ]
+        key_string = "|".join(key_components)
+        return hashlib.md5(key_string.encode()).hexdigest()
+    
+    def _get_cache_path(self) -> Path:
+        """Get the cache file path for current configuration.
+        
+        Returns:
+            Path to cache file
+        """
+        self._cache_dir.mkdir(parents=True, exist_ok=True)
+        return self._cache_dir / f"articles_{self._cache_key}.json"
+    
+    def _load_from_cache(self) -> Union[List[Dict], None]:
+        """Load articles from cache if available and not expired.
+        
+        Returns:
+            List of cached articles or None if cache miss/expired
+        """
+        cache_path = self._get_cache_path()
+        
+        if not cache_path.exists():
+            logging.debug(f"Cache miss: {cache_path} does not exist.")
+            return None
+        
+        try:
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                cache_data = json.load(f)
+            
+            # Check expiry
+            cached_time = datetime.fromisoformat(cache_data.get('timestamp', ''))
+            expiry_time = cached_time + timedelta(days=self._cache_expiry_days)
+            
+            if datetime.now() > expiry_time:
+                logging.info(f"Cache expired (created: {cached_time}).")
+                cache_path.unlink()  # Delete expired cache
+                return None
+            
+            logging.info(f"Cache hit! Articles generated on {cached_time}.")
+            return cache_data.get('articles', [])
+            
+        except Exception as e:
+            logging.warning(f"Error loading cache: {e}")
+            return None
+    
+    def _save_to_cache(self, articles: List[Dict]):
+        """Save articles to cache.
+        
+        Args:
+            articles: List of article dictionaries to cache
+        """
+        if not self._cache_enabled:
+            return
+        
+        cache_path = self._get_cache_path()
+        
+        try:
+            cache_data = {
+                'timestamp': datetime.now().isoformat(),
+                'cache_key': self._cache_key,
+                'config': {
+                    'role': self._role.value,
+                    'style': self._article_style,
+                    'audience': self._target_audience,
+                    'length': self._article_length,
+                    'focus_areas': self._focus_areas,
+                    'consolidate_docs': self._consolidate_docs
+                },
+                'articles': articles
+            }
+            
+            with open(cache_path, 'w', encoding='utf-8') as f:
+                json.dump(cache_data, f, indent=2, ensure_ascii=False)
+            
+            logging.info(f"Cached {len(articles)} articles to {cache_path}.")
+            
+        except Exception as e:
+            logging.warning(f"Error saving to cache: {e}")
+    
+    def clear_cache(self, all_caches: bool = False):
+        """Clear cached articles.
+        
+        Args:
+            all_caches: If True, clear all caches. If False, clear only current cache.
+        """
+        if all_caches:
+            if self._cache_dir.exists():
+                import shutil
+                shutil.rmtree(self._cache_dir)
+                logging.info(f"Cleared all caches in {self._cache_dir}.")
+        else:
+            cache_path = self._get_cache_path()
+            if cache_path.exists():
+                cache_path.unlink()
+                logging.info(f"Cleared cache: {cache_path}.")
     
     def _generate_all_articles(self) -> List[Dict]:
         """Generate articles from all loaded documents.
@@ -250,9 +420,15 @@ class ArticleGenerator(BaseWorkFlow):
                 page_content=combined_content,
                 metadata={"source": "Consolidated Documents"}
             )
+
             logging.info("Generating consolidated article...")
             article = self._generate_article_from_document(consolidated_doc)
             articles.append(article)
+            
+            # Cache the generated articles
+            if articles and self._cache_enabled:
+                self._save_to_cache(articles)
+            
             return articles
         
         # Group documents by source to avoid duplicates
@@ -266,6 +442,10 @@ class ArticleGenerator(BaseWorkFlow):
             logging.info(f"Generating article {i}/{len(docs_by_source)} from: {source[:80]}...")
             article = self._generate_article_from_document(doc)
             articles.append(article)
+        
+        # Cache the generated articles
+        if articles and self._cache_enabled:
+            self._save_to_cache(articles)
         
         return articles
     
@@ -353,14 +533,24 @@ Main Sections:
         
         return md
     
-    def get_articles(self) -> List[Dict]:
+    def get_articles(self, force_regenerate: bool = False) -> List[Dict]:
         """Get all generated articles.
+        
+        Args:
+            force_regenerate: If True, ignore cache and regenerate articles
         
         Returns:
             List of article dictionaries
         """
+        if force_regenerate:
+            logging.info("Force regenerate: clearing cache and generating new articles.")
+            self.clear_cache()
+            self._articles = []
+        
         if not self._articles:
-            raise ValueError("No articles available. Call initialize() first.")
+           self._articles = self._generate_all_articles()
+           if not self._articles:
+                raise ValueError("No articles available. Call initialize() first.")
         
         return self._articles
     
@@ -374,7 +564,9 @@ Main Sections:
             Formatted digest string
         """
         if not self._articles:
-            raise ValueError("No articles available. Call initialize() first.")
+           self._generate_all_articles()
+           if not self._articles:
+                raise ValueError("No articles available. Call initialize() first.")
         
         return self.generate_digest(self._articles, digest_focus)
     

@@ -19,6 +19,7 @@ class ArticleRole(str, Enum):
     CUSTOM = "custom"
     MCKINSEY_CONSULTANT = "mckinsey_consultant"
     DELOITTE_CONSULTANT = "deloitte_consultant"
+    OPERATIONS_RESEARCH_ANALYST = "operations_research_analyst"
 
 
 # Role definitions with professional context
@@ -59,6 +60,11 @@ and legal precedents. You provide clear analysis of legal issues and their pract
     
     ArticleRole.EDUCATOR: """You are an educator skilled at breaking down complex topics into digestible lessons. 
 You create educational content that facilitates learning and understanding.""",
+
+    ArticleRole.OPERATIONS_RESEARCH_ANALYST: """You are an operations research analyst with expertise in optimization, simulation, and 
+    decision analysis. You apply mathematical and analytical methods to help organizations solve complex problems and improve operational efficiency. You
+    can write articles and scenarios that illustrate the application of hybrid LLM-driven AI and operations research techniques in real-world, sepcially Logistics
+    and Transportation."""
 }
 
 
