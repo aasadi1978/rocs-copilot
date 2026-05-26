@@ -1,0 +1,18 @@
+.shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: var(--surface-2);
+}
+
+.header {
+  background: var(--gradient-signature);
+  padding: 0.75rem 1.5rem;
+  display: flex;
+  align-items: center;
+}
+
+.main {
+  flex: 1;
+  display: flex;
+}
