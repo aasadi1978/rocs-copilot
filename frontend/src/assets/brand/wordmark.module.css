@@ -1,0 +1,23 @@
+.wordmark {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-family: var(--font-body);
+  letter-spacing: -0.01em;
+  line-height: 1;
+}
+
+.rocs {
+  font-weight: 800;
+  font-size: 1.5rem;
+  background: var(--gradient-signature);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.copilot {
+  font-weight: 400;
+  font-size: 1.1rem;
+  color: var(--text-muted);
+}
