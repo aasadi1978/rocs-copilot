@@ -1,0 +1,48 @@
+.bubble {
+  max-width: 80%;
+  padding: 0.8rem 1rem;
+  border-radius: 12px;
+  margin-bottom: 0.75rem;
+}
+
+.bubble .text :first-child {
+  margin-top: 0;
+}
+.bubble .text :last-child {
+  margin-bottom: 0;
+}
+
+.user {
+  align-self: flex-end;
+  background: var(--color-primary);
+  color: white;
+}
+
+.assistant {
+  align-self: flex-start;
+  background: var(--surface-3);
+  color: var(--text-default);
+  border: 1px solid var(--surface-1);
+}
+
+.error {
+  align-self: flex-start;
+  background: #fff2f2;
+  color: var(--text-strong);
+  border: 1px solid var(--color-error);
+}
+
+.retry {
+  margin-top: 0.5rem;
+  background: var(--color-error);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 0.3rem 0.8rem;
+  cursor: pointer;
+  font: inherit;
+}
+
+.retry:hover {
+  filter: brightness(1.1);
+}
