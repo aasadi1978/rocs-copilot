@@ -42,9 +42,22 @@ export function Chat() {
     if (lastQuestion) submit(lastQuestion);
   };
 
+  const isEmpty = turns.length === 0 && !streaming && !error;
+
   return (
     <div className={styles.chat}>
       <div className={styles.messages}>
+        {isEmpty && (
+          <div className={styles.greeting}>
+            <div className={styles.avatar}>✦</div>
+            <p className={styles.greetingText}>
+              Hello, I am your <strong>ROCS Copilot</strong>.
+              <br />
+              Ask me about error codes, routing modules, or procedures.
+            </p>
+          </div>
+        )}
+
         {turns.map((t, i) => (
           <MessageBubble
             key={i}
@@ -67,28 +80,44 @@ export function Chat() {
           />
         )}
       </div>
-      <form className={styles.form} onSubmit={onSubmit}>
-        <textarea
-          className={styles.input}
-          placeholder="Ask about ROCS error codes, modules, or procedures…"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              onSubmit(e as unknown as React.FormEvent);
-            }
-          }}
-          disabled={streaming}
-        />
-        <button
-          type="submit"
-          className={styles.send}
-          disabled={streaming || !draft.trim()}
-        >
-          Send
-        </button>
-      </form>
+
+      <div className={styles.inputBar}>
+        <form className={styles.form} onSubmit={onSubmit}>
+          <textarea
+            className={styles.input}
+            placeholder="Ask about ROCS error codes, modules, or procedures…"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                onSubmit(e as unknown as React.FormEvent);
+              }
+            }}
+            disabled={streaming}
+            rows={1}
+          />
+          <button
+            type="submit"
+            className={styles.send}
+            disabled={streaming || !draft.trim()}
+            aria-label="Send"
+          >
+            <svg
+              className={styles.sendIcon}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="22" y1="2" x2="11" y2="13" />
+              <polygon points="22 2 15 22 11 13 2 9 22 2" />
+            </svg>
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
