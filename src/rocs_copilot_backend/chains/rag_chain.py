@@ -73,6 +73,16 @@ class RagChain:
         self._top_k = top_k
 
     def stream(self, question: str, history: list[dict]) -> Iterator[dict]:
+        # §8.2: empty corpus guard — check before any LLM calls.
+        # Uses getattr so that test double stores without count() still work.
+        count_fn = getattr(self._store, "count", None)
+        if count_fn is not None and count_fn() == 0:
+            yield {"kind": "error", "code": "no_corpus",
+                   "message": "No documents indexed yet. Run scripts/ingest.py first.",
+                   "retryable": False}
+            yield {"kind": "done"}
+            return
+
         # Step 1: rewrite for retrieval
         query = rewrite_question(self._llm, question, history)
 

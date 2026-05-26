@@ -4,6 +4,10 @@ Spec references:
   - §7.1 request shape: {"question": str, "history": [{"role","content"}]}
   - §7.2 ordering: tokens → source → done
   - §8.2 error codes: no_corpus, llm_unavailable, internal (all 'retryable' bool)
+
+The chain is responsible for the no_corpus check (it calls store.count() before
+any LLM work). The route proxies chain events to SSE, catching LLM-level
+exceptions as llm_unavailable.
 """
 from __future__ import annotations
 
@@ -25,30 +29,9 @@ def _sse(event: str, data: dict) -> str:
 def _generate(
     question: str,
     history: list[dict],
+    chain,
 ) -> Iterator[str]:
-    chain = current_app.extensions["rag_chain"]
-    store = current_app.extensions["chroma_store"]
-
-    # §8.2: empty corpus check
-    try:
-        if store.count() == 0:
-            yield _sse("error", {
-                "code": "no_corpus",
-                "message": "No documents indexed yet. Run scripts/ingest.py first.",
-                "retryable": False,
-            })
-            yield _sse("done", {})
-            return
-    except Exception:
-        log.exception("corpus count failed")
-        yield _sse("error", {
-            "code": "internal",
-            "message": "Something went wrong on our end.",
-            "retryable": True,
-        })
-        yield _sse("done", {})
-        return
-
+    """Proxy chain events → SSE frames. Chain handles the no_corpus guard."""
     try:
         for event in chain.stream(question=question, history=history):
             kind = event["kind"]
@@ -56,6 +39,10 @@ def _generate(
                 yield _sse("token", {"text": event["text"]})
             elif kind == "source":
                 yield _sse("source", {"chunks": event["chunks"]})
+            elif kind == "error":
+                # Chain-level error events (e.g. no_corpus) — pass through verbatim.
+                payload = {k: v for k, v in event.items() if k != "kind"}
+                yield _sse("error", payload)
             elif kind == "done":
                 yield _sse("done", {})
     except GeneratorExit:
@@ -79,8 +66,10 @@ def chat():
     if not question or not isinstance(question, str):
         return ({"error": "missing or invalid 'question'"}, 400)
 
+    chain = current_app.extensions["rag_chain"]
+
     return Response(
-        _generate(question, history),
+        _generate(question, history, chain),
         mimetype="text/event-stream",
         headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
     )
